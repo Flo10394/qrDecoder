@@ -31,7 +31,7 @@ def binarize(image, thresh):
                 image_bin[y][x] = 0
     return image_bin
 
-def binarizeSegments(image, div, thresh):
+def binarizeSegments(image, div, treshfactor):
     image_bin = np.zeros((image.shape[0], image.shape[1]))
     pixelperclustery = int(image.shape[0]/div)
     pixelperclusterx = int(image.shape[1]/div)
@@ -45,32 +45,35 @@ def binarizeSegments(image, div, thresh):
             image_segmented[y, x] = np.mean(image[ystart:ystart+pixelperclustery, xstart:xstart+pixelperclusterx])
             for i in range(pixelperclustery):
                 for j in range(pixelperclusterx):
-                    if(image[y*pixelperclustery + i, x*pixelperclusterx + j] >= image_segmented[y, x]/2):
+                    if(image[y*pixelperclustery + i, x*pixelperclusterx + j] >= treshfactor*image_segmented[y, x]): # if pixel is brighter than tresh from region, set it white
                         image_bin[y*pixelperclustery + i, x*pixelperclusterx + j] = 255
                     else:
-                        image_bin[y * pixelperclustery + i, x * pixelperclusterx + j] = 0
+                        image_bin[y * pixelperclustery + i, x * pixelperclusterx + j] = 0 # if pixel is darker than thresh from region, set it black
 
 
     return image_bin
 
-def searchRow(line, y):
+def sameSize(elems, thresh):
+    retVal = True
+    for i in range(len(elems)):
+        for j in range(len(elems)):
+            if i != j:
+                if elems[i] not in range (elems[j] - thresh, elems[j] + thresh):
+                    reVal = False
+    return retVal
+
+def searchRow(line, thresh):
     sumblack = [[0, 0], [0, 0], [0, 0]]
     sumwhite = [[0, 0], [0, 0], [0, 0], [0, 0]]
-    thresh = 5
     foundlist = []
     actualcolor = 0 if line[0] == 0 else 1  # init with first color
-    borderpix = 3
-    needToProof = 0
+    checkPattern = False
 
     for i in range(len(line)):
-        if i == 292:
-            dummy = 1
-        if i == 309:
-            dummy = 1
-
         if line[i] == 0:  # if pixel is black
             if(actualcolor == 1):  # here the color is changed from white to black
                 actualcolor = 0
+                checkPattern = False
 
                 # shift list to the left
                 sumblack = deque(sumblack)
@@ -84,6 +87,7 @@ def searchRow(line, y):
         else:  # if pixel is white
             if(actualcolor == 0):  # here the color is changed from black to white
                 actualcolor = 1    # 1 if white
+                checkPattern = True
 
                 # shift list to the left
                 sumwhite = deque(sumwhite)
@@ -94,167 +98,64 @@ def searchRow(line, y):
 
             sumwhite[3][0] += 1
 
-        #  proof for 1:1:3:1:1 pattern
-        if sumwhite[0][0] > borderpix:
-            if sumwhite[1][0] != 0 and sumblack[1][0] != 0:
-                if abs(sumwhite[1][0] - sumblack[0][0]) <= thresh:
-                    if abs(3 * sumwhite[1][0] - sumblack[1][0]) <= 2*thresh:
-                        if abs(3 * sumwhite[2][0] - sumblack[1][0]) <= 2*thresh:
-                            if abs(sumwhite[2][0] - sumblack[2][0]) <= thresh:
-                                if abs(sumwhite[3][0] - sumblack[2][0]) <= thresh:
-                                    if(sumwhite[3][0] > borderpix):
-                                        first = int( (sumwhite[1][1] + sumblack[0][1])/2 )
-                                        second = int( (sumwhite[3][1] + sumblack[2][1])/2 )
-                                        center = int( (first + second) / 2 )
-                                        whitespacefirst = int(sumwhite[1][0])
-                                        whitesapacesecond = int(sumwhite[2][0])
-                                        patternLineResult = {"first": first,
-                                                             "second": second,
-                                                             "center": center,
-                                                             "whitespacefirst": whitespacefirst,
-                                                             "whitespacesecond": whitesapacesecond
-                                                             }
-                                        ## there is a pattern
+        # check for 1:1:3:1:1 pattern
+        if(sumblack[0][0] != 0 and sumblack[1][0] != 0 and sumblack[2][0] != 0 and checkPattern and
+           sumwhite[0][0] != 0 and sumwhite[1][0] != 0 and sumwhite[2][0] != 0 and sumwhite[3][0] != 0): # if we measured anything
+            if(sumwhite[3][0] >= sumblack[2][0]-thresh):   # if the last white area is greater or equal than the last black area
+                if(sumblack[1][0] >= 10): # if the inner capsonte area (black) contains more than 10 pixels
+                    if(abs(sumwhite[1][0] - sumwhite[2][0]) <= thresh): #if the inner white area is the same size
+                        if ((abs(sumblack[1][0] - 3 * sumwhite[1][0]) <= 5 * thresh) and (abs(sumblack[1][0] - 3 * sumwhite[2][0]) <= 5 * thresh)):  # if middle capstone is 3 * white inner region
+                            if ((abs(sumwhite[1][0] - sumblack[0][0]) <= thresh) and (abs(sumwhite[2][0] - sumblack[2][0]) <= thresh)):  # if outer border is the same size as inner border
+                                if (((sumwhite[0][0] - sumblack[0][0]) >= -thresh) and ((sumwhite[3][0] - sumblack[2][0]) >= -thresh)):  # this is a valid capstone pattern
+                                    first = int((sumwhite[1][1] + sumblack[0][1]) / 2)
+                                    second = int((sumwhite[3][1] + sumblack[2][1]) / 2)
+                                    center = int((first + second) / 2)
+                                    whitespacefirst = int(sumwhite[1][0])
+                                    whitesapacesecond = int(sumwhite[2][0])
+                                    patternLineResult = {"first": first,
+                                                         "second": second,
+                                                         "center": center,
+                                                         "whitespacefirst": whitespacefirst,
+                                                         "whitespacesecond": whitesapacesecond
+                                                         }
+                                    ## there is a pattern
+                                    if(sameSize([whitespacefirst, whitesapacesecond], thresh)):
                                         foundlist.append(patternLineResult)
                                         sumblack = [[0, 0], [0, 0], [0, 0]]
                                         sumwhite = [[0, 0], [0, 0], [0, 0], [0, 0]]
 
     return foundlist
 
-
-def evalLine(line):
-    sumwhite = 0
-    sumblack = 0
-    thresh = 2
-    first = 1
-    color = line[0]
-    for pixel in line:
-        if pixel != 0:
-            sumwhite += 1  # here starts the white area
-            if(color == 0):
-                if not(first):
-                    if(abs(sumwhite - sumblack) <= thresh):
-                        # this is valid
-
-                        return [1, int((sumblack + sumwhite) / 2)]
-                    else:
-                        return [0, 0]
-                else:
-                    sumblack = 0
-                    first = 0
-            color = 1
-        else:
-            sumblack += 1
-            color = 0
-
-
-def evaluateCandidate(image, pixel):
-    ret = 0
-    pixelperDot = [0, 0, 0, 0]
-    thresh = 1
-    # eval to the right
-    line = image[pixel[0], pixel[1]:]
-    res = evalLine(line)
-    pixelperDot[0] = res[1]
-    if res[0]: # eval to the right
-        line = image[pixel[0], :pixel[1]]
-        line = np.flip(line, 0)
-        res = evalLine(line)
-        pixelperDot[1] = res[1]
-        if res[0]: # eval to the left
-            line = image[:pixel[0], pixel[1]]
-            line = np.flip(line, 0)
-            res = evalLine(line)
-            pixelperDot[2] = res[1]
-            if res[0]:  # eval to the top
-                line = image[pixel[0]:, pixel[1]]
-                res = evalLine(line)
-                pixelperDot[3] = res[1]
-                if res[0]:  # eval to the bottom
-                    ret = 1
-                    for el in pixelperDot:
-                        for el2 in pixelperDot:
-                            if el != el2:
-                                if el not in range(el2-thresh, el2+thresh):
-                                    ret = 0
-    return ret
-
-
 def findCandidates(image):
+    thresh = 3
+
     candidates = []
-
-    for y in range(image.shape[0]):  # iterate over each horizontal line
-        if(y == 345):
-            a = 10
-        patterns_x = searchRow(image[y, :], y)
-
-        if len(patterns_x) > 0:  # if there are potential capstone patterns, check the column at the x-values, detected a 1:1:3:1:1 pattern
-            for pattern_x in patterns_x:   # for every x value, a pattern was detected
-                nexts = 5
-                breaki = False
-                for i in range(1, nexts):
-                    if(y <= image.shape[1] - nexts):
-                        if(searchRow(image[y+i, :], y+i) == []):
-                            breaki = True
-                if(breaki):
-                    continue
-
-                patterns_y = searchRow(image[:, pattern_x["center"]], y)   # search for the same pattern in y direction
-                patterns_y[:] = (value for value in patterns_y if value["center"] in range(y - 20, y + 20))
-                if len(patterns_y) > 0:  # there is a captone, pretty sure
-                    nexts = 5
-                    breaki = False
-                    for i in range(-int(nexts/2), int(nexts/2)):
-                        if (pattern_x["center"]+i < image.shape[0]):
-                            if (searchRow(image[:, pattern_x["center"]+i], y) == []):
-                                breaki = True
-                    if (not(breaki)):
-                        candidate = {
-                            "center":   [patterns_y[0]["center"], pattern_x["center"]],
-                            "top":      [patterns_y[0]["first"], pattern_x["center"]],
-                            "bottom":   [patterns_y[0]["second"], pattern_x["center"]],
-                            "left":     [patterns_y[0]["center"], pattern_x["first"]],
-                            "right":    [patterns_y[0]["center"], pattern_x["second"]],
+    for y in range(image.shape[0]):  # check every image row for a 1:1:3:1:1 pattern
+        patterns_x = searchRow(image[y, :], thresh)
+        if(len(patterns_x) > 0):
+            for pattern_x in patterns_x:
+                patterns_y = searchRow(image[:, pattern_x["center"]], thresh)
+                if(len(patterns_y) > 0):
+                    for pattern_y in patterns_y:
+                        if(pattern_y["center"] in range(y-10,y+10)):
+                            candidate = {
+                            "center":   [pattern_y["center"], pattern_x["center"]],
+                            "top":      [pattern_y["first"],  pattern_x["center"]],
+                            "bottom":   [pattern_y["second"], pattern_x["center"]],
+                            "left":     [pattern_y["center"], pattern_x["first"]],
+                            "right":    [pattern_y["center"], pattern_x["second"]],
                             "whitespaceLeft":   int(pattern_x["whitespacefirst"]),
                             "whitespaceRight":  int(pattern_x["whitespacesecond"]),
-                            "whitespaceTop":    int(patterns_y[0]["whitespacefirst"]),
-                            "whitespaceBottom": int(patterns_y[0]["whitespacesecond"])
-                        }
-                        whitespace = candidate["whitespaceLeft"]
-                        thresi = 2
-                        if((candidate["whitespaceRight"]     in range(whitespace - thresi, whitespace + thresi)) and
-                           (candidate["whitespaceTop"]       in range(whitespace - thresi, whitespace + thresi)) and
-                           (candidate["whitespaceBottom"]    in range(whitespace - thresi, whitespace + thresi))):
-                            if len(candidates) == 0:
-                                candidates.append(candidate)
-                            else:
-                                add = True
-                                for el in candidates:
-                                    if((candidate["center"][0] in range(el["center"][0] - 30, el["center"][0] + 30)) and
-                                       (candidate["center"][1] in range(el["center"][1] - 30, el["center"][1] + 30))):
-                                        add = False
-                                if(add):
-                                    candidates.append(candidate)
-
-                patterns_y.clear()
+                            "whitespaceTop":    int(pattern_y["whitespacefirst"]),
+                            "whitespaceBottom": int(pattern_y["whitespacesecond"])}
+                            if(candidate["whitespaceLeft"] > 0 and candidate["whitespaceRight"] > 0 and candidate["whitespaceTop"] > 0 and candidate["whitespaceBottom"] > 0):
+                                if( sameSize(elems=[candidate["whitespaceLeft"], candidate["whitespaceRight"], candidate["whitespaceTop"], candidate["whitespaceBottom"]], thresh=thresh)):
+                                    if(candidate not in candidates):
+                                        candidates.append(candidate)
+                    patterns_y.clear()
             patterns_x.clear()
-
-
+                #check for 1:1:3:1:1 pattern in y direction
     return candidates
-
-
-    '''
-                for el in patterns_x:
-        pattern_y = searchRow(image[:, el])
-        pattern_y[:] = (value for value in pattern_y if value in range(y-50, y+50))
-
-        if len(pattern_y) > 0:  # there is a captone, pretty sure
-            if([pattern_y[0], el] not in candidates):
-                candidates.append([pattern_y[0], el])
-        pattern_y.clear()
-    patterns_x.clear()
-    '''
-
 
 def processPixel(image, x, y, toAnalyze, regionPixelList):
     if (x in range(0, image.shape[1]) and y in range(0, image.shape[0])):
@@ -262,7 +163,6 @@ def processPixel(image, x, y, toAnalyze, regionPixelList):
             if [y, x] not in regionPixelList:
                 if [y, x] not in toAnalyze:
                     toAnalyze.append([y, x])
-
 
 def checkPixelNeighbours(image, pixel, regionPixelList, toAnalyze):
     x = pixel[1]
@@ -286,7 +186,6 @@ def checkPixelNeighbours(image, pixel, regionPixelList, toAnalyze):
     x -= 1
     processPixel(image=image, x=x, y=y, regionPixelList=regionPixelList, toAnalyze=toAnalyze)
 
-
 def getRegionfromPixel(image, pixel):
     pixellist = []
     toAnalyze = []
@@ -300,7 +199,6 @@ def getRegionfromPixel(image, pixel):
         else:
             toAnalyze.remove(toAnalyze[0])
     return pixellist
-
 
 def getRegionsfromCandidates(image, candidates):
     regionList = []
@@ -320,7 +218,6 @@ def getRegionsfromCandidates(image, candidates):
             regionList.append(region)
     return regionList
 
-
 def calculateMainEmphasis(image, region):
     x = 0
     y = 0
@@ -330,7 +227,6 @@ def calculateMainEmphasis(image, region):
     y /= len(region)
     x /= len(region)
     return [y, x]
-
 
 def getCapstonesFromRegions(image, regions):
     capstones = []
@@ -346,8 +242,6 @@ def getCapstonesFromRegions(image, regions):
 
     return capstones
 
-
-
 def drawCross(image, pixel, size, color):
     y = pixel[0]
     x = pixel[1]
@@ -356,7 +250,6 @@ def drawCross(image, pixel, size, color):
         image[y, i, :] = color
     for i in range(y-size, y+size):
         image[i, x, :] = color
-
 
 def drawRegions(image, regions, colorInner, colorOuter):
     for region in regions:
